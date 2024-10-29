@@ -1,0 +1,11 @@
+{
+  "name": "tmedia-crash",
+  "version": "1.0.0",
+  "description": "Node.js crash course 2024 by Traversy Media",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Hasna Hena Mow",
+  "license": "MIT"
+}
