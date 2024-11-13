@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>System Monitor</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background: #f0f0f0;
+        color: #333;
+      }
+
+      .dashboard {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      .card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .card h2 {
+        margin-top: 0;
+        color: #2196f3;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 10px;
+      }
+
+      .cpu-bar {
+        height: 20px;
+        background: #e0e0e0;
+        border-radius: 10px;
+        margin: 5px 0;
+        overflow: hidden;
+      }
+
+      .cpu-usage {
+        height: 100%;
+        background: linear-gradient(90deg, #4caf50, #2196f3);
+        transition: width 0.3s ease;
+      }
+
+      .cpu-label {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 5px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 8px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+      }
+
+      th {
+        background: #f5f5f5;
+        font-weight: bold;
+      }
+
+      .connection-status {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-weight: bold;
+      }
+
+      .connected {
+        background: #4caf50;
+        color: white;
+      }
+
+      .disconnected {
+        background: #f44336;
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="connection-status" class="connection-status disconnected">
+      Disconnected
+    </div>
+    <h1>System Monitor</h1>
+
+    <div class="dashboard">
+      <div class="card">
+        <h2>CPU Usage</h2>
+        <div id="cpu-stats"></div>
+      </div>
+
+      <div class="card">
+        <h2>Memory Usage</h2>
+        <div id="memory-stats"></div>
+      </div>
+
+      <div class="card">
+        <h2>Top Processes</h2>
+        <div id="process-stats"></div>
+      </div>
+
+      <div class="card">
+        <h2>Network Interfaces</h2>
+        <div id="network-stats"></div>
+      </div>
+    </div>
+
+    <script>
+      let reconnectAttempts = 0;
+      const maxReconnectAttempts = 5;
+      let ws;
+
+      function connect() {
+        const statusElement = document.getElementById('connection-status');
+        ws = new WebSocket('ws://localhost:3000');
+
+        ws.onopen = () => {
+          console.log('Connected to server');
+          statusElement.textContent = 'Connected';
+          statusElement.classList.remove('disconnected');
+          statusElement.classList.add('connected');
+          reconnectAttempts = 0;
+        };
+
+        ws.onclose = () => {
+          console.log('Disconnected from server');
+          statusElement.textContent = 'Disconnected';
+          statusElement.classList.remove('connected');
+          statusElement.classList.add('disconnected');
+
+          if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            setTimeout(connect, 1000 * reconnectAttempts);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            updateDashboard(data);
+          } catch (error) {
+            console.error('Error processing message:', error);
+          }
+        };
+      }
+
+      function updateDashboard(data) {
+        // Update CPU stats
+        const cpuHtml = data.cpu
+          .map(
+            (core) => `
+                <div>
+                    <div class="cpu-label">
+                        <span>Core ${core.core}</span>
+                        <span>${core.usage.toFixed(1)}%</span>
+                    </div>
+                    <div class="cpu-bar">
+                        <div class="cpu-usage" style="width: ${
+                          core.usage
+                        }%"></div>
+                    </div>
+                </div>
+            `
+          )
+          .join('');
+        document.getElementById('cpu-stats').innerHTML = cpuHtml;
+
+        // Update memory stats
+        document.getElementById('memory-stats').innerHTML = `
+                <div class="cpu-bar">
+                    <div class="cpu-usage" style="width: ${data.memory.percentage}%"></div>
+                </div>
+                <p>Used: ${data.memory.used} (${data.memory.percentage}%)</p>
+                <p>Free: ${data.memory.free}</p>
+                <p>Total: ${data.memory.total}</p>
+            `;
+
+        // Update process table
+        const processHtml = `
+                <table>
+                    <tr>
+                        <th>PID</th>
+                        <th>Command</th>
+                        <th>CPU%</th>
+                        <th>Memory%</th>
+                    </tr>
+                    ${data.processes
+                      .map(
+                        (proc) => `
+                        <tr>
+                            <td>${proc.pid}</td>
+                            <td>${proc.cmd}</td>
+                            <td>${proc.cpu}</td>
+                            <td>${proc.mem}</td>
+                        </tr>
+                    `
+                      )
+                      .join('')}
+                </table>
+            `;
+        document.getElementById('process-stats').innerHTML = processHtml;
+
+        // Update network stats
+        const networkHtml = data.network
+          .map(
+            (iface) => `
+                <div>
+                    <h3>${iface.name}</h3>
+                    ${iface.addresses
+                      .map(
+                        (addr) => `
+                        <p>${addr.family}: ${addr.address}${
+                          addr.internal ? ' (internal)' : ''
+                        }</p>
+                    `
+                      )
+                      .join('')}
+                </div>
+            `
+          )
+          .join('');
+        document.getElementById('network-stats').innerHTML = networkHtml;
+      }
+
+      // Start connection when page loads
+      connect();
+    </script>
+  </body>
+</html>
